@@ -1,0 +1,7 @@
+* hai
+  
+#+BEGIN_SRC bash
+  stack build
+  stack exec hai-exe
+#+END_SRC
+
