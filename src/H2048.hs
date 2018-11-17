@@ -67,7 +67,7 @@ makeMainWindow = do
     if t == QEvent.KeyPress
       then do
         game <- readIORef gameRef
-        nextGame <- handleMove (toEnum v) game 
+        nextGame <- handleMove (toEnum v) game
         drawBoard nextGame gridLayout
         writeIORef gameRef nextGame
         return True
@@ -77,11 +77,11 @@ makeMainWindow = do
   return window
 
 handleMove :: QType.QtKey -> Game -> IO Game
-handleMove QType.KeyLeft game = addTier game
-handleMove QType.KeyUp game = addTier game
-handleMove QType.KeyDown game = addTier game
+handleMove QType.KeyLeft game  = addTier game
+handleMove QType.KeyUp game    = addTier game
+handleMove QType.KeyDown game  = addTier game
 handleMove QType.KeyRight game = addTier game
-handleMove _ game = return game
+handleMove _ game              = return game
 
 color :: Int -> String
 color 2 ="rgb(119,110,101)"
