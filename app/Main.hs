@@ -1,47 +1,54 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
-import Control.Arrow ((&&&))
-import Control.Monad (forM_)
-import Data.IORef (IORef, newIORef, readIORef, writeIORef)
-import qualified Data.Map as M
-import Foreign.Hoppy.Runtime (withScopedPtr)
-import qualified Graphics.UI.Qtah.Core.QCoreApplication as QCoreApplication
-import qualified Graphics.UI.Qtah.Core.QItemSelectionModel as QItemSelectionModel
-import qualified Graphics.UI.Qtah.Core.QModelIndex as QModelIndex
-import qualified Graphics.UI.Qtah.Core.QStringListModel as QStringListModel
-import qualified Graphics.UI.Qtah.Core.QVariant as QVariant
-import Graphics.UI.Qtah.Event (onEvent)
-import qualified Lib as Notepad
-import qualified Graphics.UI.Qtah.Gui.QCloseEvent as QCloseEvent
-import qualified Graphics.UI.Qtah.Gui.QFont as QFont
-import qualified Graphics.UI.Qtah.Widgets.QAbstractButton as QAbstractButton
+import           Control.Arrow                              ((&&&))
+import           Control.Monad                              (forM_)
+import           Data.IORef                                 (IORef, newIORef,
+                                                             readIORef,
+                                                             writeIORef)
+import qualified Data.Map                                   as M
+import           Foreign.Hoppy.Runtime                      (withScopedPtr)
+import qualified Graphics.UI.Qtah.Core.QCoreApplication     as QCoreApplication
+import qualified Graphics.UI.Qtah.Core.QItemSelectionModel  as QItemSelectionModel
+import qualified Graphics.UI.Qtah.Core.QModelIndex          as QModelIndex
+import qualified Graphics.UI.Qtah.Core.QStringListModel     as QStringListModel
+import qualified Graphics.UI.Qtah.Core.QVariant             as QVariant
+import           Graphics.UI.Qtah.Event                     (onEvent)
+import qualified Graphics.UI.Qtah.Gui.QCloseEvent           as QCloseEvent
+import qualified Graphics.UI.Qtah.Gui.QFont                 as QFont
+import           Graphics.UI.Qtah.Signal                    (connect_)
+import qualified Graphics.UI.Qtah.Widgets.QAbstractButton   as QAbstractButton
 import qualified Graphics.UI.Qtah.Widgets.QAbstractItemView as QAbstractItemView
-import qualified Graphics.UI.Qtah.Widgets.QApplication as QApplication
-import qualified Graphics.UI.Qtah.Widgets.QBoxLayout as QBoxLayout
-import qualified Graphics.UI.Qtah.Widgets.QLabel as QLabel
-import qualified Graphics.UI.Qtah.Widgets.QListView as QListView
-import qualified Graphics.UI.Qtah.Widgets.QPushButton as QPushButton
-import qualified Graphics.UI.Qtah.Widgets.QSplitter as QSplitter
-import qualified Graphics.UI.Qtah.Widgets.QVBoxLayout as QVBoxLayout
-import qualified Graphics.UI.Qtah.Widgets.QWidget as QWidget
-import Graphics.UI.Qtah.Signal (connect_)
-import System.Environment (getArgs)
+import qualified Graphics.UI.Qtah.Widgets.QApplication      as QApplication
+import qualified Graphics.UI.Qtah.Widgets.QBoxLayout        as QBoxLayout
+import qualified Graphics.UI.Qtah.Widgets.QLabel            as QLabel
+import qualified Graphics.UI.Qtah.Widgets.QListView         as QListView
+import qualified Graphics.UI.Qtah.Widgets.QPushButton       as QPushButton
+import qualified Graphics.UI.Qtah.Widgets.QSplitter         as QSplitter
+import qualified Graphics.UI.Qtah.Widgets.QVBoxLayout       as QVBoxLayout
+import qualified Graphics.UI.Qtah.Widgets.QWidget           as QWidget
+import qualified H2048
+import qualified Pacman
+import           System.Environment                         (getArgs)
 
 data Example = Example
-  { exTitle :: String
+  { exTitle       :: String
   , exDescription :: String
-  , exMain :: IO ()
+  , exMain        :: IO ()
   }
 
 examples :: [Example]
 examples =
   [ Example
-    { exTitle = "Notepad"
-    , exDescription = "A notepad program for editing text files."
-    , exMain = Notepad.someFunc
+    { exTitle = "2048"
+    , exDescription = "A 2048 game for testing ai."
+    , exMain = H2048.run
+    },
+    Example
+    { exTitle = "pacman"
+    , exDescription = "A pacman game for testing ai."
+    , exMain = Pacman.run
     }
-
   ]
 
 examplesByTitle :: M.Map String Example
@@ -49,10 +56,10 @@ examplesByTitle = M.fromList $ map (exTitle &&& id) examples
 
 -- | State of the example chooser UI.
 data UI = UI
-  { uiWindow :: QWidget.QWidget
-  , uiListModel :: QStringListModel.QStringListModel
+  { uiWindow            :: QWidget.QWidget
+  , uiListModel         :: QStringListModel.QStringListModel
   , uiCurrentExampleRef :: IORef (Maybe Example)
-  , uiDescriptionLabel :: QLabel.QLabel
+  , uiDescriptionLabel  :: QLabel.QLabel
   }
 
 main :: IO ()
