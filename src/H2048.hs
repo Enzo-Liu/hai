@@ -12,7 +12,8 @@ import qualified Graphics.UI.Qtah.Core.QCoreApplication as QCoreApplication
 import qualified Graphics.UI.Qtah.Core.QEvent           as QEvent
 import qualified Graphics.UI.Qtah.Core.Types            as QType
 import           Graphics.UI.Qtah.Event
-import           Graphics.UI.Qtah.Gui.QCloseEvent       (QCloseEvent)
+import           Graphics.UI.Qtah.Gui.QKeyEvent         (QKeyEvent)
+import qualified Graphics.UI.Qtah.Gui.QKeyEvent         as QKeyEvent
 import           Graphics.UI.Qtah.Signal                (connect_)
 import           Graphics.UI.Qtah.Widgets.QAction       (triggeredSignal)
 import qualified Graphics.UI.Qtah.Widgets.QAction       as QAction
@@ -49,15 +50,27 @@ makeMainWindow = do
   window <- QMainWindow.new
   QWidget.resizeRaw window 640 480
 
-  game <- newGame
+  gameRef <- newGame >>= newIORef
 
   widget <- QWidget.new
   QWidget.setStyleSheet widget "QWidget{background-color: rgb(187,173,160)}"
   QWidget.setWindowTitle widget "h2048 by qtah"
   QWidget.setGeometryRaw widget 100 100 500 555
 
-  drawBoard game >>= QWidget.setLayout widget
-
+  gridLayout <- QGridLayout.new
+  QWidget.setLayout widget gridLayout
+  readIORef gameRef >>= flip drawBoard gridLayout
+  _ <- onEvent window $ \(event :: QKeyEvent) -> do
+    t <- QEvent.eventType event
+    v <- QKeyEvent.key event
+    if t == QEvent.KeyPress 
+      then do
+        game' <- readIORef gameRef
+        nextGame <- addTier game'
+        drawBoard nextGame gridLayout
+        writeIORef gameRef nextGame
+        return True
+      else return False
   QMainWindow.setCentralWidget window widget
   return window
 
@@ -80,7 +93,7 @@ bgcolor 256  = "rgb(237,204,97)"
 bgcolor 512  = "rgb(237,200,80)"
 bgcolor 1024 = "rgb(210,161,68)"
 bgcolor 2048 = "rgb(237,194,46)"
-bgcolor _    = "rgb(238,228,218)"
+bgcolor _    = "rgb(47,43,37)"
 
 font :: Int -> String
 font 128   = "32pt"
@@ -103,9 +116,8 @@ style v = "QLabel{background: " ++ bgcolor v ++
           "; font: bold; border-radius: 10px; font:" ++ font v ++
           ";}"
 
-drawBoard :: Game -> IO QGridLayout.QGridLayout
-drawBoard (Game tiers) = do
-  gridLayout <- QGridLayout.new
+drawBoard :: Game -> QGridLayout.QGridLayout -> IO ()
+drawBoard (Game tiers) gridLayout =
   forM_ (zip [0..] tiers) $ \(i,Tier v) -> do
     label <- QLabel.new
     let (r,c) = i `quotRem` 4
@@ -113,7 +125,6 @@ drawBoard (Game tiers) = do
     QLabel.setAlignment label (QType.alignHCenter .|. QType.alignVCenter)
     QWidget.setStyleSheet label (style v)
     QGridLayout.addWidget gridLayout label r c
-  return gridLayout
 
 newGame :: IO Game
 newGame = addTier . Game . replicate 16 $ Tier 0
