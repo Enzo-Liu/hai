@@ -60,19 +60,28 @@ makeMainWindow = do
   gridLayout <- QGridLayout.new
   QWidget.setLayout widget gridLayout
   readIORef gameRef >>= flip drawBoard gridLayout
+
   _ <- onEvent window $ \(event :: QKeyEvent) -> do
     t <- QEvent.eventType event
     v <- QKeyEvent.key event
-    if t == QEvent.KeyPress 
+    if t == QEvent.KeyPress
       then do
-        game' <- readIORef gameRef
-        nextGame <- addTier game'
+        game <- readIORef gameRef
+        nextGame <- handleMove (toEnum v) game 
         drawBoard nextGame gridLayout
         writeIORef gameRef nextGame
         return True
       else return False
+
   QMainWindow.setCentralWidget window widget
   return window
+
+handleMove :: QType.QtKey -> Game -> IO Game
+handleMove QType.KeyLeft game = addTier game
+handleMove QType.KeyUp game = addTier game
+handleMove QType.KeyDown game = addTier game
+handleMove QType.KeyRight game = addTier game
+handleMove _ game = return game
 
 color :: Int -> String
 color 2 ="rgb(119,110,101)"
