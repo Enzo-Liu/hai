@@ -93,9 +93,13 @@ makeMainWindow = do
 
   runButton <- QPushButton.newWithText "&RunAI"
   stopButton <- QPushButton.newWithText "&Stop"
+  dumpButton <- QPushButton.newWithText "&DumpBoard"
+  clearButton <- QPushButton.newWithText "&Clear"
   QBoxLayout.addStretch rightBoxLayout
   QBoxLayout.addWidget rightBoxLayout runButton
   QBoxLayout.addWidget rightBoxLayout stopButton
+  QBoxLayout.addWidget rightBoxLayout dumpButton
+  QBoxLayout.addWidget rightBoxLayout clearButton
 
   aiRunning <- newIORef False
 
@@ -108,6 +112,15 @@ makeMainWindow = do
   connect_ stopButton QAbstractButton.clickedSignal $ \_ -> do
     atomicWriteIORef aiRunning False
     atomicWriteIORef listenKey True
+
+  connect_ dumpButton QAbstractButton.clickedSignal $ \_ -> do
+    game <- readIORef gameRef
+    print game
+
+  connect_ clearButton QAbstractButton.clickedSignal $ \_ -> do
+    game <- newGame
+    atomicWriteIORef gameRef game
+    drawBoard game labels
 
   splitter <- QSplitter.new
   QSplitter.addWidget splitter board
@@ -160,14 +173,13 @@ randomStategy ms = fst . (ms NE.!!) <$> randomRIO (0, NE.length ms -1)
 maxHuer :: NE.NonEmpty (Move, Game) -> IO Move
 maxHuer = return . fst . NE.head . NE.sortWith (huerScore.snd)
 
+score = [4^15,4^14,4^13,4^12,4^8,4^9,4^10,4^11,4^7,4^6,4^5,4^4,4^0,4^1,4^2,4^3]
 huerScore :: Game -> Int
-huerScore (Game board) = rowSocre + colScore - (sum . map (sum . map (^2)) $ board)
-  where rowSocre = sum . map rowHuer $ board
-        colScore = sum . map rowHuer $ transpose board
-        rowHuer [] = 0
-        rowHuer [x] = x
-        rowHuer (x:y:ys) | x > y = (- div x (max y 1)) * x + rowHuer (y:ys)
-                         | otherwise = (- div y (max x 1)) * y + rowHuer (y:ys)
+huerScore (Game board) = negate $ maximum
+  [sum $ zipWith (*) score (join board),
+   sum $ zipWith (*) score (join $ transpose board),
+   sum $ zipWith (*) score (join $ map reverse board),
+   sum $ zipWith (*) score (join . map reverse $ transpose board)]
 
 getAIMove :: Game -> Stragety -> IO (Maybe (Game -> Game))
 getAIMove g s = let cs = filter ((/= g) . snd) $ map (\f-> (f, f g)) [moveUp, moveDown, moveLeft, moveRight] in
@@ -261,7 +273,7 @@ addTile g = do
     _ -> randomRIO (0, len-1) >>= addInIndex g . (emptyCeils !!)
 
 choices :: [Int]
-choices = [2,2,2,4]
+choices = [2,2,2,2,4]
 
 getChoice :: IO Int
 getChoice = (choices !!) <$> randomRIO (0,length choices - 1)
