@@ -185,11 +185,23 @@ maxExpt :: NE.NonEmpty (Move, Game) -> IO Move
 maxExpt = return . fst . NE.head . NE.sortWith (exptScore.snd)
 
 exptScore :: Game -> Int
-exptScore g = nextScore
-  where emptyCeils = boardEmptyCeils g
-        next2Boards = map (flip (addInIndex' g) 2) emptyCeils
-        next4Boards = map (flip (addInIndex' g) 4) emptyCeils
-        nextScore = div (3 * sum (map heurScore next2Boards) + sum (map heurScore next4Boards)) (3 * length next2Boards + length next4Boards)
+exptScore g = let boards = allBoards [(1,g)] 8
+              in ceiling . sum . map (\(i,g') -> i * (fromInteger . toInteger . heurScore) g') $ boards
+
+allBoards :: [(Double, Game)] -> Int -> [(Double, Game)]
+allBoards gs 0 = gs
+allBoards gs n = let nbs = nextBoards gs in allBoards nbs (n-1)
+  where nextBoards :: [(Double,Game)] -> [(Double,Game)]
+        nextBoards gs' = map mergePoss . groupBy ((==) `on` snd) . join $ map nextBoard gs'
+        mergePoss gs' = (sum . map fst $ gs' ,snd $ head gs')
+        nextBoard :: (Double, Game) -> [(Double, Game)]
+        nextBoard (i, g) = let emptyCeils = boardEmptyCeils g
+                               l = length emptyCeils
+                               dl = (fromInteger. toInteger $l) in
+          if null emptyCeils || i <= 0.0005 then [(i,g)]
+          else
+            map ((,) (0.8*i/dl) . flip (addInIndex' g) 2) emptyCeils
+            ++ map ((,) (0.2*i/dl) . flip (addInIndex' g) 4) emptyCeils
 
 getAIMove :: Game -> Stragety -> IO (Maybe (Game -> Game))
 getAIMove g s = let cs = filter ((/= g) . snd) $ map (\f-> (f, f g)) [moveUp, moveDown, moveLeft, moveRight] in
@@ -292,7 +304,7 @@ addInIndex :: Game -> (Int,Int) -> IO Game
 addInIndex g i = addInIndex' g i <$> getChoice
 
 addInIndex' :: Game -> (Int,Int) -> Int -> Game
-addInIndex' (Game rows) i = Game . inRow i rows 
+addInIndex' (Game rows) i = Game . inRow i rows
   where inRow (_,_) [] _     = []
         inRow (0,y) (r:rs) v = inCol y r v : rs
         inRow (x,y) (r:rs) v = r : inRow (x-1,y) rs v
