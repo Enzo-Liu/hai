@@ -3,41 +3,52 @@ module H2048
     ( run
     ) where
 
-import           Control.Monad                          (forM_, unless, when)
-import           Data.Bits                              ((.&.), (.|.))
-import           Data.Functor                           (void)
-import           Data.IORef                             (IORef, newIORef,
-                                                         readIORef, writeIORef)
-import qualified Graphics.UI.Qtah.Core.QCoreApplication as QCoreApplication
-import qualified Graphics.UI.Qtah.Core.QEvent           as QEvent
-import qualified Graphics.UI.Qtah.Core.Types            as QType
+import           Control.Concurrent
+import           Control.Monad                            (forM, forM_, join,
+                                                           unless, when)
+import           Data.Bits                                ((.&.), (.|.))
+import           Data.Function                            (on)
+import           Data.Functor                             (void)
+import           Data.IORef                               (IORef,
+                                                           atomicWriteIORef,
+                                                           newIORef, readIORef)
+import           Data.List                                (groupBy, transpose)
+import qualified Data.List.NonEmpty                       as NE
+
+import qualified Graphics.UI.Qtah.Core.QCoreApplication   as QCoreApplication
+import qualified Graphics.UI.Qtah.Core.QEvent             as QEvent
+import qualified Graphics.UI.Qtah.Core.Types              as QType
 import           Graphics.UI.Qtah.Event
-import           Graphics.UI.Qtah.Gui.QKeyEvent         (QKeyEvent)
-import qualified Graphics.UI.Qtah.Gui.QKeyEvent         as QKeyEvent
-import           Graphics.UI.Qtah.Signal                (connect_)
-import           Graphics.UI.Qtah.Widgets.QAction       (triggeredSignal)
-import qualified Graphics.UI.Qtah.Widgets.QAction       as QAction
-import qualified Graphics.UI.Qtah.Widgets.QBoxLayout    as QBoxLayout
-import qualified Graphics.UI.Qtah.Widgets.QFileDialog   as QFileDialog
-import qualified Graphics.UI.Qtah.Widgets.QGridLayout   as QGridLayout
-import qualified Graphics.UI.Qtah.Widgets.QLabel        as QLabel
-import           Graphics.UI.Qtah.Widgets.QMainWindow   (QMainWindow)
-import qualified Graphics.UI.Qtah.Widgets.QMainWindow   as QMainWindow
-import qualified Graphics.UI.Qtah.Widgets.QMenu         as QMenu
-import qualified Graphics.UI.Qtah.Widgets.QMenuBar      as QMenuBar
-import qualified Graphics.UI.Qtah.Widgets.QMessageBox   as QMessageBox
-import           Graphics.UI.Qtah.Widgets.QTextEdit     (QTextEdit,
-                                                         copyAvailableSignal,
-                                                         redoAvailableSignal,
-                                                         textChangedSignal,
-                                                         undoAvailableSignal)
-import qualified Graphics.UI.Qtah.Widgets.QTextEdit     as QTextEdit
-import qualified Graphics.UI.Qtah.Widgets.QVBoxLayout   as QVBoxLayout
-import qualified Graphics.UI.Qtah.Widgets.QWidget       as QWidget
+import           Graphics.UI.Qtah.Gui.QKeyEvent           (QKeyEvent)
+import qualified Graphics.UI.Qtah.Gui.QKeyEvent           as QKeyEvent
+import           Graphics.UI.Qtah.Signal                  (connect_)
+import qualified Graphics.UI.Qtah.Signal                  as QSignal
+import qualified Graphics.UI.Qtah.Widgets.QAbstractButton as QAbstractButton
+import           Graphics.UI.Qtah.Widgets.QAction         (triggeredSignal)
+import qualified Graphics.UI.Qtah.Widgets.QAction         as QAction
+import qualified Graphics.UI.Qtah.Widgets.QBoxLayout      as QBoxLayout
+import qualified Graphics.UI.Qtah.Widgets.QFileDialog     as QFileDialog
+import qualified Graphics.UI.Qtah.Widgets.QGridLayout     as QGridLayout
+import qualified Graphics.UI.Qtah.Widgets.QLabel          as QLabel
+import           Graphics.UI.Qtah.Widgets.QMainWindow     (QMainWindow)
+import qualified Graphics.UI.Qtah.Widgets.QMainWindow     as QMainWindow
+import qualified Graphics.UI.Qtah.Widgets.QMenu           as QMenu
+import qualified Graphics.UI.Qtah.Widgets.QMenuBar        as QMenuBar
+import qualified Graphics.UI.Qtah.Widgets.QMessageBox     as QMessageBox
+import qualified Graphics.UI.Qtah.Widgets.QPushButton     as QPushButton
+import qualified Graphics.UI.Qtah.Widgets.QSplitter       as QSplitter
+import           Graphics.UI.Qtah.Widgets.QTextEdit       (QTextEdit,
+                                                           copyAvailableSignal,
+                                                           redoAvailableSignal,
+                                                           textChangedSignal,
+                                                           undoAvailableSignal)
+import qualified Graphics.UI.Qtah.Widgets.QTextEdit       as QTextEdit
+import qualified Graphics.UI.Qtah.Widgets.QVBoxLayout     as QVBoxLayout
+import qualified Graphics.UI.Qtah.Widgets.QWidget         as QWidget
 
 
 
-import           System.FilePath                        (takeFileName)
+import           System.FilePath                          (takeFileName)
 import           System.Random
 
 run :: IO ()
@@ -49,39 +60,123 @@ makeMainWindow :: IO QMainWindow
 makeMainWindow = do
   window <- QMainWindow.new
   QWidget.resizeRaw window 640 480
+  QWidget.setWindowTitle window "h2048 by qtah"
 
   gameRef <- newGame >>= newIORef
 
-  widget <- QWidget.new
-  QWidget.setStyleSheet widget "QWidget{background-color: rgb(187,173,160)}"
-  QWidget.setWindowTitle widget "h2048 by qtah"
-  QWidget.setGeometryRaw widget 100 100 500 555
+  board <- QWidget.new
+  QWidget.setStyleSheet board "QWidget{background-color: rgb(187,173,160)}"
+  QWidget.setGeometryRaw board 100 100 500 555
 
   gridLayout <- QGridLayout.new
-  QWidget.setLayout widget gridLayout
-  readIORef gameRef >>= flip drawBoard gridLayout
+  QWidget.setLayout board gridLayout
+  labels <- initBoard gridLayout
 
+  readIORef gameRef >>= flip drawBoard labels
+
+  listenKey <- newIORef True
   _ <- onEvent window $ \(event :: QKeyEvent) -> do
     t <- QEvent.eventType event
     v <- QKeyEvent.key event
-    if t == QEvent.KeyPress
+    listen <- readIORef listenKey
+    if listen && t == QEvent.KeyPress
       then do
+        let move = getKeyMove (toEnum v)
         game <- readIORef gameRef
-        nextGame <- handleMove (toEnum v) game
-        drawBoard nextGame gridLayout
-        writeIORef gameRef nextGame
+        moveGame game move labels >>= atomicWriteIORef gameRef
         return True
       else return False
 
-  QMainWindow.setCentralWidget window widget
+  rightBox <- QWidget.new
+  rightBoxLayout <- QVBoxLayout.new
+  QWidget.setLayout rightBox rightBoxLayout
+
+  runButton <- QPushButton.newWithText "&RunAI"
+  stopButton <- QPushButton.newWithText "&Stop"
+  QBoxLayout.addStretch rightBoxLayout
+  QBoxLayout.addWidget rightBoxLayout runButton
+  QBoxLayout.addWidget rightBoxLayout stopButton
+
+  aiRunning <- newIORef False
+
+  _ <- forkIO $ runAI gameRef aiRunning labels
+
+  connect_ runButton QAbstractButton.clickedSignal $ \_ -> do
+    atomicWriteIORef aiRunning True
+    atomicWriteIORef listenKey False
+
+  connect_ stopButton QAbstractButton.clickedSignal $ \_ -> do
+    atomicWriteIORef aiRunning False
+    atomicWriteIORef listenKey True
+
+  splitter <- QSplitter.new
+  QSplitter.addWidget splitter board
+  QSplitter.addWidget splitter rightBox
+  QSplitter.setSizes splitter [600 :: Int, 200]
+
+  main <- QWidget.new
+  layout <- QVBoxLayout.newWithParent main
+  QBoxLayout.addWidgetWithStretch layout splitter 1
+
+  QMainWindow.setCentralWidget window main
   return window
 
-handleMove :: QType.QtKey -> Game -> IO Game
-handleMove QType.KeyLeft game  = addTier game
-handleMove QType.KeyUp game    = addTier game
-handleMove QType.KeyDown game  = addTier game
-handleMove QType.KeyRight game = addTier game
-handleMove _ game              = return game
+runAI :: IORef Game -> IORef Bool -> [QLabel.QLabel] -> IO ()
+runAI gameRef aiRunning labels = do
+  running <- readIORef aiRunning
+  when running $ do
+    game <- readIORef gameRef
+    move <- getAIMove game maxHuer
+    case move of
+      Nothing    -> atomicWriteIORef aiRunning False
+      Just move' -> moveGame game move' labels >>= atomicWriteIORef gameRef
+  threadDelay (200*1000)
+  runAI gameRef aiRunning labels
+
+moveGame :: Game -> (Game -> Game) -> [QLabel.QLabel] -> IO Game
+moveGame game move labels = do
+        nextGame <- nextMove move game
+        drawBoard nextGame labels
+        return nextGame
+
+getKeyMove :: QType.QtKey -> (Game -> Game)
+getKeyMove QType.KeyLeft  = moveLeft
+getKeyMove QType.KeyUp    = moveUp
+getKeyMove QType.KeyDown  = moveDown
+getKeyMove QType.KeyRight = moveRight
+getKeyMove _              = id
+
+nextMove :: (Game -> Game) -> Game -> IO Game
+nextMove move g | nextGame == g = return g
+                | otherwise = addTile nextGame
+                where nextGame = move g
+
+type Move = Game -> Game
+type Stragety = (NE.NonEmpty (Move, Game) -> IO Move)
+
+randomStategy :: NE.NonEmpty (Move, Game) -> IO Move
+randomStategy ms = fst . (ms NE.!!) <$> randomRIO (0, NE.length ms -1)
+
+maxHuer :: NE.NonEmpty (Move, Game) -> IO Move
+maxHuer = return . fst . NE.head . NE.sortWith (huerScore.snd)
+
+huerScore :: Game -> Int
+huerScore (Game board) = rowSocre + colScore - (sum . map (sum . map (^2)) $ board)
+  where rowSocre = sum . map rowHuer $ board
+        colScore = sum . map rowHuer $ transpose board
+        rowHuer [] = 0
+        rowHuer [x] = x
+        rowHuer (x:y:ys) | x > y = (- div x (max y 1)) * x + rowHuer (y:ys)
+                         | otherwise = (- div y (max x 1)) * y + rowHuer (y:ys)
+
+getAIMove :: Game -> Stragety -> IO (Maybe (Game -> Game))
+getAIMove g s = let cs = filter ((/= g) . snd) $ map (\f-> (f, f g)) [moveUp, moveDown, moveLeft, moveRight] in
+  case s <$> NE.nonEmpty cs of
+    Nothing -> return Nothing
+    Just m  -> Just <$> m
+
+canMove :: Game -> (Game -> Game) -> Bool
+canMove g move = move g /= g
 
 color :: Int -> String
 color 2 ="rgb(119,110,101)"
@@ -125,25 +220,45 @@ style v = "QLabel{background: " ++ bgcolor v ++
           "; font: bold; border-radius: 10px; font:" ++ font v ++
           ";}"
 
-drawBoard :: Game -> QGridLayout.QGridLayout -> IO ()
-drawBoard (Game tiers) gridLayout =
-  forM_ (zip [0..] tiers) $ \(i,Tier v) -> do
+initBoard :: QGridLayout.QGridLayout -> IO [QLabel.QLabel]
+initBoard gridLayout = forM indexes $ \(r,c) -> do
     label <- QLabel.new
-    let (r,c) = i `quotRem` 4
-    QLabel.setText label (vtext v)
     QLabel.setAlignment label (QType.alignHCenter .|. QType.alignVCenter)
-    QWidget.setStyleSheet label (style v)
     QGridLayout.addWidget gridLayout label r c
+    return label
+
+drawBoard :: Game -> [QLabel.QLabel] -> IO ()
+drawBoard (Game board) labels =
+  forM_ (zip labels (join board)) $ \(l, v) -> do
+    QLabel.setText l (vtext v)
+    QWidget.setStyleSheet l (style v)
+
+--- 2048 data
+rowLen :: Int
+rowLen = 4
+
+colLen :: Int
+colLen = 4
 
 newGame :: IO Game
-newGame = addTier . Game . replicate 16 $ Tier 0
+newGame = addTile . Game . replicate rowLen . replicate colLen $ 0
 
-addTier :: Game -> IO Game
-addTier g@(Game tiers) = do
-  let len = length $ filter (== Tier 0) tiers
+indexes :: [(Int,Int)]
+indexes = [(x,y)| x<- [0..rowLen-1], y <- [0..colLen-1]]
+
+boardWithIndex :: Game -> [((Int,Int), Tile)]
+boardWithIndex (Game board) = zip indexes . join $ board
+
+boardEmptyCeils :: Game -> [(Int, Int)]
+boardEmptyCeils = map fst . filter ((== 0) . snd) . boardWithIndex
+
+addTile :: Game -> IO Game
+addTile g = do
+  let emptyCeils = boardEmptyCeils g
+      len = length emptyCeils
   case len of
-    0 -> return (Game tiers)
-    _ -> randomRIO (0, len-1) >>= (`addInI` g)
+    0 -> return g
+    _ -> randomRIO (0, len-1) >>= addInIndex g . (emptyCeils !!)
 
 choices :: [Int]
 choices = [2,2,2,4]
@@ -151,19 +266,48 @@ choices = [2,2,2,4]
 getChoice :: IO Int
 getChoice = (choices !!) <$> randomRIO (0,length choices - 1)
 
-addInI :: Int -> Game -> IO Game
-addInI i g = (\v -> addVInI v i g) <$> getChoice
+addInIndex :: Game -> (Int,Int) -> IO Game
+addInIndex (Game rows) i = Game . inRow i rows <$> getChoice
+  where inRow (_,_) [] _     = []
+        inRow (0,y) (r:rs) v = inCol y r v : rs
+        inRow (x,y) (r:rs) v = r : inRow (x-1,y) rs v
+        inCol _ [] _     = []
+        inCol 0 (_:cs) v = v:cs
+        inCol y (c:cs) v = c:inCol (y-1) cs v
 
-addVInI :: Int -> Int -> Game -> Game
-addVInI v i (Game ts) = Game $ addVInIForTiers v i ts
+moveLeft' :: [[Tile]] -> [[Tile]]
+moveLeft' arr = let mergedRows = map mergeRow arr in mergedRows
 
-addVInIForTiers :: Int -> Int -> [Tier] -> [Tier]
-addVInIForTiers v 0 (Tier 0:ts)     = Tier v:ts
-addVInIForTiers v 0 (t:ts)          = t:addVInIForTiers v 0 ts
-addVInIForTiers v i (t@(Tier 0):ts) = t:addVInIForTiers v (i-1) ts
-addVInIForTiers v i (t:ts)          = t:addVInIForTiers v i ts
-addVInIForTiers _ _ _               = error "wrong number of empty hole"
+moveLeft :: Game -> Game
+moveLeft (Game arr) = Game  . moveLeft' $ arr
 
-newtype Tier = Tier Int deriving (Eq, Show)
-newtype Game = Game [Tier] deriving Show
+mergeRow :: [Tile] -> [Tile]
+mergeRow r = pad0 len . merge . filter0 $ r
+  where filter0 = filter (/= 0)
+        len = length r
+
+pad0 :: Int -> [Tile] -> [Tile]
+pad0 0 a      = a
+pad0 n []     = 0 : pad0 (n-1) []
+pad0 n (y:ys) = y:pad0 (n-1) ys
+
+merge :: [Tile] -> [Tile]
+merge [] = []
+merge [x] = [x]
+merge (x:y:ys)
+  | x == y = 2*x:merge ys
+  | otherwise = x: merge (y:ys)
+
+moveRight :: Game -> Game
+moveRight (Game arr) = Game . map reverse . moveLeft' . map reverse $ arr
+
+moveUp :: Game -> Game
+moveUp (Game arr) = Game . transpose .  moveLeft' . transpose $ arr
+
+moveDown :: Game -> Game
+moveDown (Game arr) = Game . transpose . map reverse . moveLeft' . map reverse . transpose $ arr
+
+type Tile = Int
+type Board = [[Tile]]
+newtype Game = Game Board deriving (Eq, Show)
 

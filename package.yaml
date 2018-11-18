@@ -28,6 +28,7 @@ dependencies:
 - filepath >=1.0 && <1.5
 - hoppy-runtime >=0.5 && <0.6
 - random
+- array
 
 library:
   source-dirs: src

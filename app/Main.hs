@@ -78,10 +78,11 @@ newChooserWindow = do
 
   model <- QStringListModel.newWithContents $ M.keys examplesByTitle
   listView <- QListView.new
+  QWidget.setStyleSheet listView "QListView{color: gray;font: 20px;}"
   QAbstractItemView.setModel listView model
   QAbstractItemView.setEditTriggers listView QAbstractItemView.noEditTriggers
 
-  titleLabel <- QLabel.newWithText "Qtah Example Programs"
+  titleLabel <- QLabel.newWithText "AI Example Programs"
   titleFont <- QWidget.font titleLabel
   QFont.setPixelSize titleFont 25
   QWidget.setFont titleLabel titleFont
@@ -132,7 +133,7 @@ newChooserWindow = do
 
   connect_ runButton QAbstractButton.clickedSignal $ \_ -> runSelectedExample ui
 
-  connect_ quitButton QAbstractButton.clickedSignal $ \_ -> QCoreApplication.quit
+  connect_ quitButton QAbstractButton.clickedSignal $ const QCoreApplication.quit
 
   return ui
 
