@@ -72,7 +72,7 @@ makeMainWindow = do
   QWidget.setLayout board gridLayout
   labels <- initBoard gridLayout
 
-  readIORef gameRef >>= flip drawBoard labels
+  readIORef gameRef >>= flip (drawBoard board) labels
 
   listenKey <- newIORef True
   _ <- onEvent window $ \(event :: QKeyEvent) -> do
@@ -83,7 +83,7 @@ makeMainWindow = do
       then do
         let move = getKeyMove (toEnum v)
         game <- readIORef gameRef
-        moveGame game move labels >>= atomicWriteIORef gameRef
+        moveGame game move board labels >>= atomicWriteIORef gameRef
         return True
       else return False
 
@@ -105,7 +105,7 @@ makeMainWindow = do
 
   aiRunning <- newIORef False
 
-  _ <- forkIO $ runAI gameRef aiRunning labels
+  _ <- forkIO $ runAI gameRef aiRunning board labels
 
   connect_ runButton QAbstractButton.clickedSignal $ \_ -> do
     atomicWriteIORef aiRunning True
@@ -122,11 +122,11 @@ makeMainWindow = do
   connect_ clearButton QAbstractButton.clickedSignal $ \_ -> do
     game <- newGame
     atomicWriteIORef gameRef game
-    drawBoard game labels
+    drawBoard board game labels
 
   connect_ reDrawButton QAbstractButton.clickedSignal $ \_ -> do
     game <- readIORef gameRef
-    drawBoard game labels
+    drawBoard board game labels
 
   splitter <- QSplitter.new
   QSplitter.addWidget splitter board
@@ -140,22 +140,22 @@ makeMainWindow = do
   QMainWindow.setCentralWidget window main
   return window
 
-runAI :: IORef Game -> IORef Bool -> [QLabel.QLabel] -> IO ()
-runAI gameRef aiRunning labels = do
+runAI :: IORef Game -> IORef Bool -> QWidget.QWidget -> [QLabel.QLabel] -> IO ()
+runAI gameRef aiRunning board labels = do
   running <- readIORef aiRunning
   when running $ do
     game <- readIORef gameRef
     move <- getAIMove game maxExpt
     case move of
       Nothing    -> atomicWriteIORef aiRunning False
-      Just move' -> moveGame game move' labels >>= atomicWriteIORef gameRef
+      Just move' -> moveGame game move' board labels >>= atomicWriteIORef gameRef
   threadDelay (200*1000)
-  runAI gameRef aiRunning labels
+  runAI gameRef aiRunning board labels
 
-moveGame :: Game -> (Game -> Game) -> [QLabel.QLabel] -> IO Game
-moveGame game move labels = do
+moveGame :: Game -> (Game -> Game) -> QWidget.QWidget -> [QLabel.QLabel] -> IO Game
+moveGame game move board labels = do
         nextGame <- nextMove move game
-        drawBoard nextGame labels
+        drawBoard board nextGame labels
         return nextGame
 
 getKeyMove :: QType.QtKey -> (Game -> Game)
@@ -204,7 +204,7 @@ allBoards gs n = let nbs = nextBoards gs in allBoards nbs (n-1)
         nextBoard (i, g) = let emptyCeils = boardEmptyCeils g
                                l = length emptyCeils
                                dl = (fromInteger. toInteger $l) in
-          if null emptyCeils || i <= 0.01 then [(i,g)]
+          if null emptyCeils || i <= 0.001 then [(i,g)]
           else
             map ((,) (0.8*i/dl) . bestMove . flip (addInIndex' g) 2) emptyCeils
             ++ map ((,) (0.2*i/dl) . bestMove . flip (addInIndex' g) 4) emptyCeils
@@ -271,11 +271,13 @@ initBoard gridLayout = forM indexes $ \(r,c) -> do
     QGridLayout.addWidget gridLayout label r c
     return label
 
-drawBoard :: Game -> [QLabel.QLabel] -> IO ()
-drawBoard (Game board) labels =
+drawBoard :: QWidget.QWidget -> Game -> [QLabel.QLabel] -> IO ()
+drawBoard qboard (Game board) labels = do
   forM_ (zip labels (join board)) $ \(l, v) -> do
     QLabel.setText l (vtext v)
     QWidget.setStyleSheet l (style v)
+  QWidget.update qboard
+
 
 --- 2048 data
 rowLen :: Int
