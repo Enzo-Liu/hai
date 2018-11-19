@@ -94,12 +94,14 @@ makeMainWindow = do
   runButton <- QPushButton.newWithText "&RunAI"
   stopButton <- QPushButton.newWithText "&Stop"
   dumpButton <- QPushButton.newWithText "&DumpBoard"
+  reDrawButton <- QPushButton.newWithText "&ReDraw"
   clearButton <- QPushButton.newWithText "&Clear"
   QBoxLayout.addStretch rightBoxLayout
   QBoxLayout.addWidget rightBoxLayout runButton
   QBoxLayout.addWidget rightBoxLayout stopButton
   QBoxLayout.addWidget rightBoxLayout dumpButton
   QBoxLayout.addWidget rightBoxLayout clearButton
+  QBoxLayout.addWidget rightBoxLayout reDrawButton
 
   aiRunning <- newIORef False
 
@@ -120,6 +122,10 @@ makeMainWindow = do
   connect_ clearButton QAbstractButton.clickedSignal $ \_ -> do
     game <- newGame
     atomicWriteIORef gameRef game
+    drawBoard game labels
+
+  connect_ reDrawButton QAbstractButton.clickedSignal $ \_ -> do
+    game <- readIORef gameRef
     drawBoard game labels
 
   splitter <- QSplitter.new
@@ -198,10 +204,14 @@ allBoards gs n = let nbs = nextBoards gs in allBoards nbs (n-1)
         nextBoard (i, g) = let emptyCeils = boardEmptyCeils g
                                l = length emptyCeils
                                dl = (fromInteger. toInteger $l) in
-          if null emptyCeils || i <= 0.0005 then [(i,g)]
+          if null emptyCeils || i <= 0.01 then [(i,g)]
           else
-            map ((,) (0.8*i/dl) . flip (addInIndex' g) 2) emptyCeils
-            ++ map ((,) (0.2*i/dl) . flip (addInIndex' g) 4) emptyCeils
+            map ((,) (0.8*i/dl) . bestMove . flip (addInIndex' g) 2) emptyCeils
+            ++ map ((,) (0.2*i/dl) . bestMove . flip (addInIndex' g) 4) emptyCeils
+
+bestMove :: Game -> Game
+bestMove g = NE.head . NE.sortWith heurScore . NE.map (\m-> m g) . NE.fromList
+  $ [moveUp,moveLeft, moveDown, moveRight]
 
 getAIMove :: Game -> Stragety -> IO (Maybe (Game -> Game))
 getAIMove g s = let cs = filter ((/= g) . snd) $ map (\f-> (f, f g)) [moveUp, moveDown, moveLeft, moveRight] in
